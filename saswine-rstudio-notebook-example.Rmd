@@ -1,0 +1,131 @@
+---
+title: "Stratified PH using saswine inside a Rstudio notebook"
+output: html_notebook
+---
+
+The data comes from "The Effect of 6-Mercaptopurine on the Duration of Steroid-induced Remissions in Acute Leukemia: A Model for Evaluation of Other Potentially Useful Therapy" (Freireich and al, Blood 1963 21:699-716)
+
+21 ordered times to relapse  (in weeks) are compared among children in remission from acute leukemia. Matching was on remission status and hospital (pairid): two patients come from the same hospital, with one treated and the other untreated.
+
+Goal: Estimate the relative risk for 6-MP versus placebo, adjusting for hospital and remission status
+
+# Data input and cleaning
+
+```{r engine='sas', engine.path='/usr/local/bin/saswine', result='asis'}
+data ref.leukemia;
+input ID$ pairid   tpbo   t6mp   death; 
+datalines;
+"1" 1 1 10 1
+"2" 2 22 7 1
+"3" 3 3 32 0
+"4" 4 12 23 1
+"5" 5 8 22 1
+"6" 6 17 6 1
+"7" 7 2 16 1
+"8" 8 11 34 0
+"9" 9 8 32 0
+"10" 10 12 25 0
+"11" 11 2 11 0
+"12" 12 5 20 0
+"13" 13 4 19 0
+"14" 14 15 6 1
+"15" 15 8 17 0
+"16" 16 23 35 0
+"17" 17 5 6 1
+"18" 18 11 13 1
+"19" 19 4 9 0
+"20" 20 1 6 0
+"21" 21 8 10 0
+;
+PROC PRINT DATA=ref.leukemia; 
+   TITLE 'Leukemia input'; 
+RUN; 
+
+```
+
+```{r engine='sas', engine.path='/usr/local/bin/saswine', result='asis'}
+PROC TRANSPOSE DATA=ref.Leukemia OUT=ref.LEU1;
+BY PAIRID;
+VAR tpbo;
+RUN;
+
+DATA ref.LEUtpbo;
+SET ref.LEU1 (rename=(COL1=time) drop=_name_) ;
+death=1; 
+group=2;
+RUN;
+
+PROC PRINT DATA=ref.LEUtpbo;
+   TITLE 'Survival of untreated Leukemia patients';
+RUN;
+```
+
+```{r engine='sas', engine.path='/usr/local/bin/saswine', result='asis'}
+PROC TRANSPOSE DATA=ref.Leukemia OUT=ref.LEU2;
+BY PAIRID;
+VAR  T6MP ;
+RUN;
+PROC TRANSPOSE DATA=ref.Leukemia OUT=ref.LEU3;
+BY PAIRID;
+VAR death;
+RUN;
+
+DATA ref.LEUt6mp; 
+MERGE ref.LEU2 (rename=(COL1=time) drop=_name_) ref.LEU3 (rename=(COL1=death) drop=_name_); 
+by PAIRID;
+group=1;
+RUN;
+
+PROC PRINT DATA=ref.LEUt6mp;
+TITLE 'Survival of treated Leukemia patients';
+RUN;
+```
+
+```{r engine='sas', engine.path='/usr/local/bin/saswine', result='asis'}
+DATA ref.Leukemia_final;
+SET ref.LEUtpbo ref.LEUt6mp; 
+by PAIRID; 
+RUN;
+
+PROC PRINT DATA=ref.Leukemia_final;
+title 'Leukemia patients grouped';
+run;
+```
+
+# Correct analysis
+
+```{r engine='sas', engine.path='/usr/local/bin/saswine', result='asis'}
+PROC PHREG DATA=ref.Leukemia_final;
+MODEL TIME*DEATH(0)=  GROUP /RL;
+STRATA PAIRID;
+RUN;
+```
+
+The risk of relapse is 6 times higher in the placebo group that in the 6MP treated group
+```{r}
+exp(1.79176)
+```
+
+# Incorrect analysis:
+
+```{r engine='sas', engine.path='/usr/local/bin/saswine', result='asis'}
+PROC PHREG DATA=ref.Leukemia_final;
+MODEL TIME*DEATH(0)=  GROUP /RL; 
+RUN;
+```
+
+The analysis is incorrect because it is not clear what the reference population is.
+
+```{r engine='sas', engine.path='/usr/local/bin/saswinehtmls', result='asis'}
+proc lifetest data=ref.Leukemia_final plots=(s,h) METHOD=KM NOPRINT NOTABLE;
+time time*death(0);
+strata group;
+title'Estimating Survival Time';
+run;
+```
+
+```{r echo=FALSE, message=FALSE}
+shiny::includeHTML('~/.wine-sas91/drive_c/SASWINE/chunk.html')
+```
+
+

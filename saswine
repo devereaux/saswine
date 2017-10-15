@@ -1,0 +1,145 @@
+#!/bin/bash
+## This is saswine to use SAS (executed inside Wine) within a Rstudio notebook.
+# SASmarkdown is another option if you just want to run SAS on the same computer
+#
+# Why saswine?
+# - Rstudio notebooks allows litterate programming, interlacing chunks of code
+# and their interpretation, with an immediate preview of the results of the code
+# - Wine lets you have a controlled environment, while being lighter than virtualization.
+# This is extremely helpful for reproducibility: you can have separate
+# installations of each version of some software, letting you run legacy code
+# on the specific vintage version of this software that it was made for.
+#
+# So saswine will be helpful if you want to convert legacy SAS code to R in an
+# environment that allows iteration, visual feedback, and documentation of all
+# the steps
+#
+# A custom engine would be better than this script, to pass R options for ex to detect
+# the output should be included in a html frame, directly and without extra code.
+
+# Edit the path below to match your installation. I assume grep sed and openssl work.
+# Since saswine aims for reproducibility of legacy SAS code within a modern Rstudio,
+# saswine has a compatibility target with SAS 9.1: saswine will not use any option that
+# is not supported by SAS 9.1.
+SASVERSION=9.1
+USERHOME=/home/user
+WINEDIR=.wine-sas$SASVERSION
+cd $USERHOME/$WINEDIR/drive_c/SASWINE/
+
+## FIXME: saswine is a script instead of a custom engine because of a bug in rstudio
+# I can't reproduce http://datadrivensecurity.info/blog/posts/2015/Jun/running-other-languages-in-r-markdown-files/
+# Bug report and example are on https://community.rstudio.com/t/bug-cant-create-custom-engine-for-use-in-notebooks/1376
+# I could not find a workarounds with knit_print
+# example from  https://cran.r-project.org/web/packages/knitr/vignettes/knit_print.html#a-low-level-explanation
+# source from https://raw.githubusercontent.com/yihui/knitr/master/vignettes/knit_print.Rmd
+
+## One source, at least 2 symlinks: saswine and saswinehtml, so check the name
+me=`basename "$0"`
+
+## Save the environment in case we need it later for RS_SHARED_SECRET, RSTUDIO_SESSION_PORT, RS_LOCAL_PEER or R_SESSION_TMPDIR
+# env > $USERHOME$WINEDIR/drive_c/SASWINE/env
+
+## To start with a clean base, we use a handmade autoexec.sas
+# If we add 'ods listing close;' there, the regular chunk.lst will not be created
+# however this is required to create the gif files for html rendering.
+# without that, no gifs files are created.
+
+## FIXME: add a parameter to keep a given page number
+
+echo '
+/* For paths */
+LIBNAME REF "C:\SASWINE\";
+/* For ASCII output */
+/* clear screen */
+dm "log;autoscroll 0; log;clear; out;autoscroll 0; output;clear;";
+/* do not use the custom sas font that is not a known encoding */
+options formchar="|----|+|---+=|-/\<>*";
+/* keep an empty page delimiter */
+options formdlim="";
+/* remove the useless title and date */
+options nonumber nodate pagesize = max;
+title;
+title1; title2;
+
+/* For HTML output */
+/* create the gif files for html output instead of the ascii output */
+'> ./autoexec.sas
+
+if [ $me = "saswine" ]; then echo '
+/* ods listing close; */ ' >> ./autoexec.sas ; else echo '
+ods listing close;' >> ./autoexec.sas
+fi
+
+echo '
+/* remove ods listing close to make an ascii output */
+/* remove the extra titles */
+ods noproctitle;
+/* do not use gpath or path to have all images in the current directory */
+/* also we do not was dos paths in the html file */
+ods html file="C:\SASWINE\chunk.htm" (no_top_matter no_bottom_matter) style=journal;
+/* make the text readable by using a 800x600 output by default*/
+goptions device=gif;
+' >> ./autoexec.sas
+
+## "$@" will pass all the arguments this scripts is called with -- here the code chunk.
+## it must be made available to wine, so we copy it
+## for safety, suffix the code by the magic "antifreeze" and stop the ods output
+cat "$@" > ./chunk.sas
+echo "
+ods html close;
+;*';*\";*/;quit;" >> ./chunk.sas
+
+## Clean previous output
+echo > chunk.lst
+echo > chunk.htm
+echo > chunk.log
+
+# FIXME: should also have a hook to save/reload workspaces automatically
+
+env WINARCH=win32 WINEPREFIX="$USERHOME/$WINEDIR" /usr/bin/wine32 \
+$USERHOME/$WINEDIR/drive_c/Program\ Files/SAS/SAS\ $SASVERSION/sas.exe \
+-batch -nosplash -icon -linesize 75 \
+-autoexec "C:\\SASWINE\\autoexec.sas" \
+-work "C:\\SASWINE" \
+-sysin "C:\\SASWINE\\chunk.sas" -log "C:\\SASWINE\\chunk.log" -print "C:\\SASWINE\\chunk.lst"
+
+## We then clean the hardcoded path in the output html
+# we need to inline the images from www into the html in base64 to be truly portable
+# <img src="data:image/png;base64,your-base-64-encoded-image-data" alt="some text">
+
+# SAS9.4 has ods html5 options (inline) output, but 9.1 compatibility is the target
+#cat ./chunk.htm | sed -e 's/C:\\SASWINE\\www\\/www\//' > ./chunk.html
+
+cp ./chunk.htm ./chunk.html
+grep -ioE "(url\(|src=)['\"]?[^)'\"]*" ./chunk.html | grep -ioE "[^\"'(]*.(jpg|png|gif)" | while read l ; do sed -i "s>$l>data:image/${l/[^.]*./};base64,`openssl enc -base64 -in $l| tr -d '\n'`>" chunk.html ; done;
+
+# FIXME: should also clean gif and png files created in the directory
+
+# FIXME: We could also keep option FORMCHAR is ignored, and replace manually in
+# the output by nice UTF characters, like from:
+# -FORMCHAR "<82><83><84><85><86><87><88><89><8a><8b><8c>+=|-/\<>*"
+# -FORMCHAR "|----|+|---+=|-/\<>*" */                                                    
+# cat chunk.lst | sed -e 's/\x83/-/g' > chunk.out
+
+# Remove ant ^L or rstudio will have problems and truncate the previous pages
+cat chunk.lst | sed 's/\o14//g' > chunk.out
+
+## We are now done!
+# Return either the html or the output for use by R
+if [ $me = "saswine" ]; then cat ./chunk.out
+elif [ $me = "saswinehtml" ]; then cat ./chunk.html
+else echo "Output saved"
+# Use any other name for a silent output
+# Useful if you want to do a manual inclusion of the file
+fi
+
+## Grep errors from the log to pass them to the errlog
+grep -A1 -B1 "__" ./chunk.log > ./chunk.err
+# FIXME: should also include the next lines that start with spaces
+grep -E "ERROR|WARNING|UNINITIALIZED|CONVERTED|REPEATS|BY ZERO|UNKNOWN" ./chunk.log >> ./chunk.err
+>&2 cat ./chunk.err
+
+# WONTFIX: errors will cause the normal output to be repeated, apparently due
+# to Rstudio as in command line the error is only shown once, so it should be
+# replaced with a r function.
+# But this scripts exists because I could not make a custom engine!
