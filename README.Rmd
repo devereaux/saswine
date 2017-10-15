@@ -1,0 +1,35 @@
+---
+title: "README"
+output: html_document
+---
+
+## What is saswine?
+
+saswine lets you use SAS code within a Rstudio notebook, with the nice feature that SAS is executed within wine (http://www.winehq.org)
+
+## Why saswine?
+
+SASmarkdown is another option if you just want to run SAS code inside a markdown file, and on the same computer.
+
+Instead, saswine depends on Rstudio notebooks and wine:
+
+- Rstudio notebooks allows litterate programming, interlacing chunks of code
+and their interpretation, with an immediate preview of the results of the code
+
+- Wine lets you have a controlled environment, while being lighter than virtualization.
+This is extremely helpful for reproducibility: you can have separate installations of each version of some software, letting you run legacy code on the specific vintage version of this software that it was made for, or even compare the differences.
+
+So saswine will be helpful if you want to convert legacy SAS code to R or to another language supported within Rstudio, which is an environment that allows iteration, visual feedback, and documentation of all the steps.
+
+## Limitations
+
+saswine is currently a shell script. A custom R engine would be better than a script, to pass R options directly while keeping the code simple and readable.
+
+For example, it could detect the output should be rended as a html frame, directly and without making you add any extra code.
+
+At the moment, you must use a specific call to a link (or a copy) of saswine, then shiny::includeHTML which is not as practical as it could be.
+
+## Why a shell script?
+
+A custom R engine does not seem possible at the moment due to several bugs within Rstudio.
+Writing a simple shell script offers a simple and immediate workaround.
