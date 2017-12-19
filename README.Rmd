@@ -31,5 +31,10 @@ At the moment, you must use a specific call to a link (or a copy) of saswine, th
 
 ## Why a shell script?
 
-A custom R engine does not seem possible at the moment due to several bugs within Rstudio.
+A custom R engine does not seem possible at the moment due to several bugs within Rstudio:
+
+https://github.com/rstudio/rstudio/issues/1822
+
+https://github.com/rstudio/rstudio/issues/1825
+
 Writing a simple shell script offers a simple and immediate workaround.
